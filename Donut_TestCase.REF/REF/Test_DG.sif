@@ -1,0 +1,284 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!                                       !!
+!! Test ISMIP HOM A010                   !!
+!!                                       !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!---LUA BEGIN
+! assert(loadfile('./FUNCTIONS/Geometry2.lua'))()
+!---LUA END
+
+check keywords warn
+echo off
+
+$Lx = 1e5
+$Ly = 5e4
+$yearinsec = 365.25*24*60*60
+$rhoi = 900.0/(1.0e6*yearinsec^2)   
+$gravity = -9.81*yearinsec^2
+$n = 3.0
+$eta = (2.0*100.0)^(-1.0/n)
+$z_sea = 50.0
+Header
+  Mesh DB "." "rectangle_$resolution$_DG"
+
+$timestep_interval = 100
+$timestep_size = 1
+$output_interval = 1
+End
+
+Constants
+End
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Simulation
+  Coordinate System  = Cartesian 3D 
+  Simulation Type = Transient
+  Timestepping Method = "bdf"
+  BDF Order = 1
+
+  !Mesh Levels 
+  !------------
+  !Mesh Levels = $mesh_levels 
+  Extruded Mesh Levels = Integer 3
+
+  Timestep Intervals = $timestep_interval
+  TimeStep Sizes =  $timestep_size
+  Output Intervals = $output_interval
+
+  Initialize Dirichlet Conditions = Logical False
+  
+  Steady State Max Iterations = 1
+  Steady State Min Iterations = 1
+
+  !Restart Position = 101
+  !Restart File = "$restart$_$resolution$.result"
+  OutPut File = "$name$_$resolution$.result"
+
+  max output level = 3
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! the ice core (3d)
+Body 1
+  Equation = 1
+  Body Force = 1
+  Material = 1
+  Initial Condition = 1
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Initial Condition 1
+
+  tracer = Variable Coordinate 1 , Coordinate 2
+    Real lua "tracer(tx[0], tx[1])"   
+  
+  tracer_DG = Variable Coordinate 1 , Coordinate 2
+    Real lua "tracer(tx[0], tx[1])"   
+  
+  Zs = Real 100.0
+  Zb = Real 0.0 
+
+  Velocity 1 = Real 1000.0
+  Velocity 2 = Real 0.0
+  Velocity 3 = Real 0.0
+  
+  Temperature = Real -11.0
+End
+
+Initial Condition 2
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Body Force 1
+  Flow BodyForce 1 = Real 0.0                          
+  Flow BodyForce 2 = Real 0.0                          
+  Flow BodyForce 3 = Real $gravity
+
+  Tracer_DG Source = Real 0.0
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! ice material properties in MPa - m - a system 
+Material 1
+  Density = Real $rhoi 
+  sea level = Real $z_sea
+  Cauchy = Logical True
+
+  ! viscosity stuff
+  !----------------
+  Viscosity Model = String Glen
+  Viscosity =  Real 1.0
+
+  Glen Exponent = Real 3.0
+  Glen Enhancement Factor = Real 1.0
+  Limit Temperature = Real -10.0
+
+  ! Viscosity is only Temp model dependent 
+  Relative Temperature = Equals Temperature 
+  
+  ! Rate factors (Paterson value in MPa^-3a^-1)
+  Rate Factor 1 = Real 1.258e13
+  Rate Factor 2 = Real 6.046e28
+  Activation Energy 1 = Real 60e3
+  Activation Energy 2 = Real 139e3
+
+  Limit Temperature = Real -10.0
+  Critical Shear Rate = Real 1.0e-10
+
+  !Condition on the surface
+  Min Zs = variable Zb
+    Real lua "tx[0]+10"
+
+  Tracer_DG Gamma = Real 0.0
+
+  Convection Velocity 1 = Equals Velocity 1
+  Convection Velocity 2 = Equals Velocity 2
+  Convection Velocity 3 = Equals Velocity 3 
+
+End
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Solver 1
+  Exec Solver = before all
+  Equation = "UpdateExport"
+  Procedure = "ElmerIceSolvers" "UpdateExport"
+  Variable = -nooutput "dumy"
+
+  Exported variable 1 = -dofs 1 Zb
+  Exported variable 2 = -dofs 1 Zs
+  Exported variable 3 = -dofs 1 Tracer
+  Exported variable 4 = -dofs 3 Velocity
+End
+
+
+Solver 2 
+  !Make the mesh for the frist time
+  Exec Solver = "Before All"
+  Equation = "MapCoordinate_init"
+  Procedure = "StructuredMeshMapper" "StructuredMeshMapper"
+  Active Coordinate = Integer 3
+
+  Top Surface Variable Name = String "Zs"
+  Bottom Surface Variable Name = String "Zb"
+
+  Displacement Mode = Logical False
+  Correct Surface = Logical True
+  Minimum Height = Real 10.0
+End
+
+Solver 3
+  Exec Solver = Before Timestep
+  Equation = "MapCoordinate"
+  Procedure = "StructuredMeshMapper" "StructuredMeshMapper"
+  Active Coordinate = Integer 3
+
+  Top Surface Variable Name = String "Zs"
+  Bottom Surface Variable Name = String "Zb"
+
+  Correct Surface = Logical True 
+  Minimum Height = Real 10.0
+  Mesh Velocity Variable = String "dSdt 3"
+
+End
+
+Solver 4
+  Exec Solver = "Before Timestep"
+  Equation = "HeightDepth"
+  Procedure = "StructuredProjectToPlane" "StructuredProjectToPlane"
+  Active Coordinate = Integer 3
+  Operator 1 = depth
+  Operator 2 = height
+End
+
+Solver 5
+  Equation = "Normal vector"
+  Procedure = "ElmerIceSolvers" "ComputeNormalSolver"
+  Variable = -dofs 2 "Normal Vector"
+  Optimize Bandwidth = Logical False
+  ComputeAll = Logical False
+End
+
+Solver 6
+   Equation = "Tracer"
+   Variable = "Tracer_DG"
+
+   Procedure = "AdvectionReaction" "AdvectionReactionSolver"
+
+   Discontinuous Galerkin = Logical True
+
+  ! Linear System Solver = Direct
+  ! Linear System Direct Method = umfpack
+
+  Linear System Solver = "Iterative"
+  Linear System Iterative Method =  "GMRES"     !"BICGStab"
+  Linear System Max Iterations = 1000
+  Linear System Convergence Tolerance = 1.0E-12
+  Linear System Abort Not Converged = False
+  Linear System Preconditioning = "ILU0"
+  Linear System Residual Output = 10000
+
+! equation is linear if no min/max
+   Nonlinear System Max Iterations = 1
+   Nonlinear System Convergence Tolerance  = 1.0e-09
+   Nonlinear System Relaxation Factor = 1.00
+
+   Exported Variable 1 = Tracer
+End
+
+Solver 7
+  Exec Solver = String "after saving"
+  Equation = String "ResultOutput"
+  Procedure = File "ResultOutputSolve" "ResultOutputSolver"
+  Save Geometry Ids = Logical True
+  Output File Name = File $name
+  Output Format = String "vtu"
+  Output Directory = File "VTUs_Outputs"
+  Vtu Format = Logical True
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Equation 1
+  Active Solvers (7) = 1 2 3 4 5 6 7 
+  Flow Solution Name = String "Flow Solution"
+  Convection = String "Constant"
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Boundary Condition 1
+  Target Boundaries = 1
+  Velocity 2 = Real 0.0
+End
+
+! Periodic outlet
+Boundary Condition 2
+  Target Boundaries = 2
+  
+  External Pressure = variable Depth
+    Real matc "rhoi*gravity*tx" 
+End
+
+Boundary Condition 3
+  Target Boundaries = 3
+
+  Velocity 2 = Real 0.0
+End
+
+! Periodic inlet
+Boundary Condition 4
+  Target Boundaries = 4
+  ComputeNormal = Logical False
+  
+  Velocity 1 = Real 1000
+End
+
+
+!!! bedrock
+Boundary Condition 5
+  Height = Real 0.0
+End
+
+!!! free surface
+Boundary Condition 6
+  Name = "surface"
+  Depth = Real 0.0
+End 

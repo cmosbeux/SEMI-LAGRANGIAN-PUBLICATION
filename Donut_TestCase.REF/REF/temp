@@ -1,0 +1,394 @@
+!!                                       !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!---LUA BEGIN
+! assert(loadfile('./FUNCTIONS/Geometry2.lua'))()
+!---LUA END
+
+check keywords warn
+echo off
+
+$Lx = 1e5
+$Ly = 5e4
+$yearinsec = 365.25*24*60*60
+$rhoi = 900.0/(1.0e6*yearinsec^2)
+$gravity = -9.81*yearinsec^2
+$n = 3.0
+$eta = (2.0*100.0)^(-1.0/n)
+$z_sea = 50.0
+Header
+  Mesh DB "." "rectangle_$resolution$"
+End
+
+Constants
+ sea level = Real $z_sea
+ !For Damage User Function
+ Dev Tensile Strength Modifier = Real 0.05
+End
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Simulation
+  Coordinate System  = Cartesian 3D
+  Simulation Type = Transient
+  Timestepping Method = "bdf"
+  BDF Order = 1
+
+  !Mesh Levels 
+  !------------
+  !Mesh Levels = $mesh_levels 
+  Extruded Mesh Levels = Integer 3
+
+  Timestep Intervals = 50
+  TimeStep Sizes = 2
+  Output Intervals = 1
+
+  Initialize Dirichlet Conditions = Logical False
+
+  Steady State Max Iterations = 1
+  Steady State Min Iterations = 1
+
+  Post File = "$name$_$resolution$.vtu"
+
+  Restart Position = 101
+  Restart File = "$restart$_$resolution$.result"
+  OutPut File = "$name$_$resolution$.result"
+
+  max output level = 3
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! the ice core (3d)
+Body 1
+  Equation = 1
+  Body Force = 1
+  Material = 1
+  Initial Condition = 1
+End
+
+! The upper free surface
+Body 2
+  Equation = 2
+  Body Force = 2
+  Material = 1
+  Initial Condition = 2
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Initial Condition 1
+  Damage = Real 0.0
+  PSeaD = Real 0.0
+
+  !Particle Time Integral = Real 0.0
+  tracer = Variable Coordinate 1 , Coordinate 2
+    Real lua "tracer(tx[0], tx[1])"
+
+  Temperature = Real -11.0
+End
+
+Initial Condition 2
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Body Force 1
+  Flow BodyForce 1 = Real 0.0
+  Flow BodyForce 2 = Real 0.0
+  Flow BodyForce 3 = Real $gravity
+
+  Particle Time Integral Source = Variable "Dummy"
+    REAL MATC "0*tx + 1"
+
+  tracer = Equals tracer_adv
+  !Particle Time Integral = Equals PTI_adv
+End
+
+Body Force 2
+  Zs Accumulation = Real 0.0
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! ice material properties in MPa - m - a system 
+Material 1
+  Density = Real $rhoi
+  sea level = Real $z_sea
+  Cauchy = Logical True
+
+  ! viscosity stuff
+  !----------------
+  Viscosity Model = String Glen
+  Viscosity =  Real 1.0
+
+  Glen Exponent = Real 3.0
+  Glen Enhancement Factor = Real 1.0
+  Limit Temperature = Real -10.0
+
+  ! Viscosity is only Temp model dependent 
+  Relative Temperature = Equals Temperature
+
+  ! Rate factors (Paterson value in MPa^-3a^-1)
+  Rate Factor 1 = Real 1.258e13
+  Rate Factor 2 = Real 6.046e28
+  Activation Energy 1 = Real 60e3
+  Activation Energy 2 = Real 139e3
+
+  Limit Temperature = Real -10.0
+  Critical Shear Rate = Real 1.0e-10
+
+  !Condition on the surface
+  Min Zs = variable Zb
+    Real lua "tx[0]+10"
+End
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Solver 1
+  !Make the mesh for the frist time
+  Exec Solver = "Before All"
+  Equation = "MapCoordinate_init"
+  Procedure = "StructuredMeshMapper" "StructuredMeshMapper"
+  Active Coordinate = Integer 3
+
+  Top Surface Variable Name = String "Zs"
+  Bottom Surface Variable Name = String "Zb"
+
+  Displacement Mode = Logical False
+  Correct Surface = Logical True
+  Minimum Height = Real 10.0
+End
+
+Solver 2
+  Exec Solver = Before Simulation
+  Equation = "UpdateExport"
+  Procedure = "ElmerIceSolvers" "UpdateExport"
+  Variable = -nooutput "dumy"
+
+  Exported Variable 1 = -dofs 1 Temperature
+End
+
+Solver 3
+  Exec Solver = Before Timestep
+  Equation = "MapCoordinate"
+  Procedure = "StructuredMeshMapper" "StructuredMeshMapper"
+  Active Coordinate = Integer 3
+
+  Top Surface Variable Name = String "Zs"
+  Bottom Surface Variable Name = String "Zb"
+
+  Correct Surface = Logical True
+  Minimum Height = Real 10.0
+  Mesh Velocity Variable = String "dSdt 3"
+
+End
+
+Solver 4
+  Exec Solver = "Before Timestep"
+  Equation = "HeightDepth"
+  Procedure = "StructuredProjectToPlane" "StructuredProjectToPlane"
+  Active Coordinate = Integer 3
+  Operator 1 = depth
+  Operator 2 = height
+End
+
+Solver 5
+  Equation = "Normal vector"
+  Procedure = "ElmerIceSolvers" "ComputeNormalSolver"
+  Variable = -dofs 2 "Normal Vector"
+  Optimize Bandwidth = Logical False
+  ComputeAll = Logical False
+End
+
+Solver 6
+  Equation = "Navier-Stokes"
+  Stabilization Method = String Stabilized
+  Flow Model = Stokes
+
+  Optimize Bandwidth = True
+
+  !mandatory to save bulk stiffness matrix
+  Calculate Loads = Logical True
+
+  Linear System Solver = Direct
+  Linear System Direct Method = mumps
+  Mumps percentage increase working space = Integer 150
+
+  Nonlinear System Max Iterations = 30
+  Nonlinear System Convergence Tolerance  = 1.0e-4
+  Nonlinear System Newton After Iterations = 500
+  Nonlinear System Newton After Tolerance = 1.0e-5
+  Nonlinear System Reset Newton = Logical True
+  Nonlinear System Relaxation Factor = 1
+
+  Steady State Convergence Tolerance = Real 1.0e-10
+End
+
+Solver 7
+  Equation = ParticleAdvector
+  Procedure = "ParticleAdvector" "ParticleAdvector"
+
+! Initialize particles at center of elements (as opposed to nodes)
+  Advect Elemental = Logical False
+
+  Reinitialize Particles = Logical True
+  Particle Dt Constant = Logical False
+
+! Timestepping strategy
+  Simulation Timestep Sizes = Logical True
+  Max Timestep Intervals = Integer $N_internal
+
+! Time in average 4 steps in each element
+  Timestep Unisotropic Courant Number = Real 0.25
+  Max Timestep Size = Real 1.0e3
+
+! Give up integration if particles are too old
+  Max Integration Time = Real 1.0e5
+
+! Integration forward in time
+  Runge Kutta = Logical False
+  Velocity Gradient Correction = Logical True
+  Velocity Variable Name = String "Flow Solution"
+
+  !cy: incompatible with dummy argument
+  !Source Gradient Correction = Logical True
+
+  Source Time Correction = Logical True
+  Particle time reverse = Logical True
+
+! Show some info in the end
+  Particle Info = Logical True
+  Particle Time = Logical True
+
+! The internal variables for this solver
+
+  !cy: particle distance leads to crash
+  Variable 1 = String "tracer"
+  Variable 2 = String "Particle velocity_abs"
+  Variable 3 = String "Particle Time Integral"
+  !Operator 3 = String "Cumulative"
+  !Variable 2 = String "Particle distance"
+  !Variable 3 = String "Particle disp"
+
+  Result Variable 1 = String "tracer_adv"
+  !Result Variable 3 = String "PTI_adv"
+
+  !Particle disp dofs = dim --> does not work in //, dofs must be = 1
+
+  Particle Integral Dummy Argument = Logical True
+End
+
+Solver 8
+  Equation = "updateexp"
+    procedure = "ElmerIceSolvers" "UpdateExport"
+   variable = -nooutput  dumy2
+
+  Exported Variable 1 = -dofs 1 tracer
+  Exported Variable 2 = -dofs 1 tracer_adv
+  !Exported Variable 3 = -dofs 1 Particle Time Integral
+  !Exported Variable 4 = -dofs 1 PTI_adv
+End
+
+Solver 9
+  Exec Solver = Never
+  Equation = "Free Surface upper"
+  Variable = -dofs 1 "Zs"
+  Exported Variable 1 = -dofs 1 "Zs Residual"
+  Exported Variable 2 = -dofs 1 "ReferenceZs"
+
+  Procedure = "FreeSurfaceSolver" "FreeSurfaceSolver"
+
+  Linear System Solver = Iterative
+  Linear System Max Iterations = 100
+  Linear System Iterative Method = BiCGStab
+  Linear System Preconditioning = ILU0
+  Linear System Convergence Tolerance = Real 1.0e-9
+  Linear System Abort Not Converged = False
+  Linear System Residual Output = 1
+
+  Nonlinear System Max Iterations = 100
+  Nonlinear System Convergence Tolerance  = 1.0e-6
+  Nonlinear System Relaxation Factor = 1.00
+
+  Steady State Convergence Tolerance = 1.0e-03
+
+  Stabilization Method = Bubbles
+  Apply Dirichlet = Logical False
+  ALE Formulation = Logical True
+
+  Use Accumulation = Logical True
+
+  Relaxation Factor = Real 1.0
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Equation 1
+  Active Solvers (8)= 1 2 3 4 5 6 7 8
+  Flow Solution Name = String "Flow Solution"
+End
+
+Equation 2
+  Active Solvers(1) = 9
+  Flow Solution Name = String "Flow Solution"
+  Convection = String "Computed"
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Boundary Condition 1
+  Target Boundaries = 1
+
+  Velocity 2 = Real 0.0
+End
+
+! Periodic outlet
+Boundary Condition 2
+  Target Boundaries = 2
+
+  External Pressure = variable Depth
+    Real matc "rhoi*gravity*tx"
+End
+
+Boundary Condition 3
+  Target Boundaries = 3
+
+  Velocity 2 = Real 0.0
+End
+
+! Periodic inlet
+Boundary Condition 4
+  Target Boundaries = 4
+  ComputeNormal = Logical False
+
+  Velocity 1 = Real 500
+
+  Particle Time Integral = Real 0.0
+End
+
+
+!!! bedrock
+Boundary Condition 5
+
+  !Friction law 
+  Normal-Tangential Velocity = Logical True
+  Flow Force BC = Logical True
+  Compute Normal = Logical True
+
+  Velocity 1 = Real 0.0
+  Slip Coefficient 2 = Variable Coordinate 1
+    Real Procedure "ElmerIceUSF" "Sliding_Weertman"
+  Slip Coefficient 3 = Variable Coordinate 1
+    Real Procedure "ElmerIceUSF" "Sliding_Weertman"
+
+  !Particle Wall = Logical True
+  Particle Tangent = Logical True
+
+  Sliding Law = String "Weertman"
+  Weertman Friction Coefficient = Equals Beta
+  Weertman Exponent = Real 1.0
+  Weertman Linear Velocity = Real 1.0
+  Height = Real 0.0
+End
+
+!!! free surface
+Boundary Condition 6
+  Name = "surface"
+  Body ID = 2
+  Depth = Real 0.0
+
+  Particle Tangent = Logical True
+End

@@ -1,0 +1,498 @@
+!---LUA BEGIN
+! assert(loadfile('./FUNCTIONS/AMU.lua'))()
+! assert(loadfile('./FUNCTIONS/AMU2.lua'))()
+! assert(loadfile('./FUNCTIONS/FRICTION.lua'))()
+! assert(loadfile('./FUNCTIONS/VISCOSITY.lua'))()
+! assert(loadfile('./FUNCTIONS/LIMITER.lua'))()
+!---LUA END
+
+$name = "<AMU_FIX_D1-Reference>"
+$restart= "AMU_FIX_Wm1_INIT"
+
+$dt = <dt>
+$N_internal = <N_internal>
+$dt_output = <dt_output>
+
+!we simulate a 50 year evolution
+$total_dt = <total_dt>
+$dt_pa = <dt>
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+include AMU.param
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+Header
+  Mesh DB "." "./MESH_1000"
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Constants
+
+  ! Stokes spring for floating ice 
+  Sea Spring Timestep Size = Real 0.0147
+
+  !Physical
+  Sea Level = Real $zsl
+  water density = Real #rhoo
+  Ice density = Real #rhoi
+
+  !DAMAGE
+  Dev Tensile Strength Modifier = Real 0.00
+  Healing rate = Real 0.<HEALING_RATE>
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Simulation
+  Coordinate System  = Cartesian 3D
+  Simulation Type = "transient"
+  Timestepping Method = "bdf"
+  BDF Order = 1
+
+  Extruded Mesh Levels = Integer #MLEV
+  Extruded Mesh Density = Variable Coordinate 1
+    Real MATC "1.0+2.5*tx"
+ 
+  Timestep Intervals = $total_dt
+  TimeStep Size = $dt 
+
+  Steady State Min Iterations = 1
+  Steady State Max Iterations = 1
+
+  OutPut File = "$name$.result"
+  Output Intervals = $dt_output
+
+  Restart File = "$restart$.result"
+
+  Restart Position = 5000 ! dummy last position
+
+  Restart Before Initial Conditions = Logical True
+  Initialize Dirichlet Conditions = Logical False
+
+  max output level = 3
+  !Max Output Partition = 32
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Body 1
+  Equation = 1
+  Material = 1
+  Body Force = 1
+  Initial Condition = 1 
+End
+
+Body 2
+  Equation = 2
+  Material = 2
+  Body Force = 2
+  Initial Condition = 2
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Initial Condition 1 
+  Damage = Real 0.0
+  Damage_adv = Real 0.0
+  Var_zero = Real 0.0
+End
+
+Initial Condition 2
+End
+ 
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Body Force 1
+  Flow BodyForce 1 = Real 0.0
+  Flow BodyForce 2 = Real 0.0
+  Flow BodyForce 3 = Real #gravity
+  
+  PSeaD = Variable Coordinate 3
+     Real Procedure "ElmerIceUSF" "SeaPressure"
+  
+  !Source added outside of the Particle Time Integral
+  Particle Time Integral Source = Variable Var_zero
+    Real Procedure "./USF_Damage/MY_USF_Damage_Limiter" "SourceDamage"  
+    !Real Procedure "ElmerIceUSF" "SourceDamage"
+
+  !update value after timestep
+  !Damage = Equals Damage_adv
+  Damage = Variable Damage_adv,  damage_mask
+     Real LUA "limiter_damage(tx[0], tx[1], 0.0, 0.7)"
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Material 1
+  Sea level = Real #zsl
+
+  Density = Real #rhoi
+  Cauchy = Logical True
+
+  Viscosity Model = String "power law"
+  Viscosity Exponent = Real #m
+
+  ! Viscosity using a power law mu*Ef^2 
+  Viscosity = Variable bottom EF, mu
+    Real LUA "tx[0]^2 * tx[1]"
+    
+  Critical Shear Rate = Real 1.0e-10
+
+  ! Damage Source Parameters
+  Damage Enhancement Factor = Real 1.0
+  Damage Parameter sigmath = Real 0.<SIGMA_TH>
+End
+
+Material 2
+  Density = Real #rhoi
+  Min FS lower = Equals bed
+  Min Zs Bottom = Equals bed
+End
+
+!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+Solver 1
+  !Make the mesh for the frist time
+  Exec Solver = Before All
+  Equation = "MapCoordinate_init"
+  Procedure = "StructuredMeshMapper" "StructuredMeshMapper"
+  Active Coordinate = Integer 3
+
+  Top Surface Variable Name = String "Fs upper"
+  Bottom Surface Variable Name = String "Fs lower"
+
+  Displacement Mode = Logical False
+  Correct Surface = Logical True
+  Minimum Height = Real 10.0
+End
+
+Solver 2
+  Exec Solver = Before all
+  Equation = "read geometry"
+  procedure = "GridDataReader" "GridDataReader"
+  Filename = File "./DATA/damage_mask.nc"
+
+  Read full array = Logical False
+
+  X Dim Name = String "x"
+  Y Dim Name = String "y"
+  X Var Name = String "x"
+  Y Var Name = String "y"
+  Epsilon X = Real 1.0e-4
+  Epsilon Y = Real 1.0e-4
+  Variable 1 = "Damage_mask"
+  Enable Scaling = Logical False
+End
+
+Solver 3
+  Exec Solver = Before Simulation
+  Equation = "GroundedMaskIni"
+  Procedure = "ElmerIceSolvers" "GroundedSolver"
+  Variable = GroundedMask
+  Variable DOFs = 1
+  Toler = Real 1.0e-3
+End
+
+
+Solver 4
+  Exec Solver = Before Simulation
+  Equation = "MapCoordinate"
+  Procedure = "StructuredMeshMapper" "StructuredMeshMapper"
+  Active Coordinate = Integer 3
+  
+  Top Surface Variable Name = String FS upper
+  Bottom Surface Variable Name = String FS lower
+
+  Correct Surface = Logical True
+  Minimum Height = Real 10.0
+  Mesh Velocity Variable = String "dSdt 3"
+End
+
+
+Solver 5
+  Equation = "HeightDepth"
+  Procedure = "StructuredProjectToPlane" "StructuredProjectToPlane"
+  Active Coordinate = Integer 3
+  Operator 1 = depth
+  Operator 2 = height
+  Operator 3 = thickness
+  
+  Variable 4 = "Damage"
+  Operator 4 = int
+End 
+
+Solver 6
+  Equation = "Normal Vector"
+  Procedure = "ElmerIceSolvers" "ComputeNormalSolver"
+  Variable = "Normal Vector"
+  Variable DOFs = 3
+  ComputeAll = Logical True
+  Optimize Bandwidth = Logical False
+End
+
+
+Solver 7
+  ! Integrate the water presure to get the resulting nodal force (Fx, Fy, Fz)
+  Equation = Fw
+  Procedure = "ElmerIceSolvers" "GetHydrostaticLoads"
+  Variable = Fw[Fwater:3]
+  Variable DOFs = 3
+End
+
+Solver 8
+  Equation = "UpdateExport"
+  Procedure = "ElmerIceSolvers" "UpdateExport"
+  Variable = -nooutput "dumy"
+
+  Exported variable 1 = -dofs 1 c1
+  Exported variable 2 = -dofs 1 Distance
+End
+
+Solver 9
+  Exec Solver = Before Timestep 
+  Equation = "Navier-Stokes"  
+  Stabilization Method = String Stabilized
+  Flow Model = Stokes
+
+  Optimize Bandwidth = True
+
+  !mandatory to save bulk stiffness matrix
+  Calculate Loads = Logical True
+
+  Linear System Solver = Direct
+  Linear System Direct Method = mumps
+  Mumps percentage increase working space = Integer 150
+
+  Nonlinear System Max Iterations = 25
+  Nonlinear System Convergence Tolerance  = 1.0e-4
+  Nonlinear System Newton After Iterations = 500
+  Nonlinear System Newton After Tolerance = 1.0e-5
+  Nonlinear System Reset Newton = Logical True
+  Nonlinear System Relaxation Factor = 1
+
+  Steady State Convergence Tolerance = Real 1.0e-10
+
+  Exported Variable 1 = -dofs 6 Stress
+  Exported Variable 2 = -dofs 1 PSeaD
+  Exported Variable 3 = -dofs 1 Var_zero
+End
+
+
+Solver 10
+  Equation = Sij
+  Procedure = "ElmerIceSolvers" "ComputeDevStress"
+  Variable = -nooutput "Sij"
+  Variable DOFs = 1
+
+  Exported Variable 1 = -dofs 6 Stress
+  Stress Variable Name = String "Stress"
+
+  Exported Variable 2 = -dofs 1 "Chi"
+  Exported Variable 3 = -dofs 3 "Sigma"
+
+  Flow Solver Name = String "Flow Solution"
+
+  Linear System Solver = "Iterative"
+  Linear System Iterative Method = "BiCGStab"
+  Linear System Max Iterations = 300
+  Linear System Convergence Tolerance = 1.0E-06
+  Linear System Abort Not Converged = True
+  Linear System Preconditioning = "ILU0"
+  Linear System Residual Output = 1
+
+  Exported Variable 4 = -dofs 1 Damage
+End
+
+
+Solver 11
+  !-----------------------------------------------------------------------
+  ! Frequency_PA = dt_pa/dt_simu 
+  ! Timestep size (dt_internal) and Max Timestep Intervals (N_internal)
+  ! are fixed following : :
+  !     dt_pa = N_internal * dt_internal
+  !     e.g. N_internal = 10 ==> dt_internal = dt_pa/10 
+  !----------------------------------------------------------------------
+  ! Exec Interval = $dt_pa
+  ! Timestep Size = Real $dt_pa/$N_internal
+ 
+  Equation = ParticleAdvector
+  Procedure = "ParticleAdvector" "ParticleAdvector"
+
+  ! Initialize particles at center of elements (as opposed to nodes)
+  Advect Elemental = Logical False
+
+  Reinitialize Particles = Logical True
+  Particle Dt Constant = Logical False
+  
+  Particle Accurate At Face = Logical True
+
+! Timestepping strategy
+  Simulation Timestep Sizes = Logical True
+
+  Max Timestep Intervals = Integer $N_internal
+
+! Give up integration if particles are tool old
+  Max Integration Time = Real 1.0e5
+
+! Integration forward in time
+  Runge Kutta = Logical False
+  Velocity Gradient Correction = Logical True
+  Velocity Variable Name = String "Flow Solution"
+
+! Keywords for sourcing the particle
+  Source Time Correction = Logical True
+  Particle time reverse = Logical Truee
+  
+  Source Gradient Correction  = Logical False
+  !Fix Tangent Velocity = Logical True 
+ 
+! Show some info in the end
+  Particle Info = Logical True
+  Particle Time = Logical True
+
+ ! Variables for this solver
+  Variable 1 = String "Particle time integral"
+
+ ! Distance and velocity of the particle can be computed
+  Result Variable 1 = String "Damage_adv"
+
+ Particle Integral Dummy Argument = Logical False
+End
+
+Solver 12
+  Equation = "updateexp"
+  procedure = "ElmerIceSolvers" "UpdateExport"
+
+  Exported Variable 1 = -dofs 1 Damage_adv
+  Exported Variable 2 = -dofs 1 Damage
+End
+
+
+Solver 13
+  Exec Solver = String "after saving"
+  Equation = String "ResultOutput"
+  Procedure = File "ResultOutputSolve" "ResultOutputSolver"
+  Save Geometry Ids = Logical True
+  Output File Name = File $name
+  Output Format = String "vtu"
+  Output Directory = File #outdir
+  Vtu Format = Logical True
+
+  Scalar field 1 =  Damage
+  Scalar field 2  = vx           ! ...
+  Scalar field 3  = vy           ! ...
+  Scalar field 4  = bottom Ef    ! ...
+  Scalar field 5  = mu           ! ...
+  Scalar field 6  = bed          ! Bed machine bedrock
+  Scalar field 7  = fs lower     ! Elmer geometry (surf)
+  Scalar field 8  = fs upper     ! (base)
+  Scalar field 9  = thickness    ! ...
+  Scalar field 10 = depth        ! ...
+  Scalar field 11 = groundedmask ! 
+  Scalar field 12 = c1           ! drag coefficient
+  Scalar field 13 = "Int Damage"
+  Scalar field 14 = chi
+  Vector field 1  = velocity     ! ...
+  Vector field 2  = Stress     ! ...
+End
+
+!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+
+Equation 1
+  Active Solvers (10) = 1 2 4 5 6 9 10 11 12 13
+  Flow Solution Name = String "Flow Solution"
+End
+
+Equation 2
+  Active Solvers (3) = 3 7 8
+  Convection = Computed
+  Flow Solution Name = String "Flow Solution"
+  Friction Load Mask = String "GroundedMask"
+End
+
+!%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
+!3D boundaries
+!-------------------------------
+Boundary Condition 1
+ Name = "calving_front"
+ Target Boundaries(1) = 1
+
+ Flow Force BC = logical True
+ External Pressure = variable coordinate 3
+   Real Procedure "ElmerIceUSF" "SeaPressure"
+
+ Compute Sea Pressure = Logical True
+
+ !Needed for IceFrontLocation
+ Ice Front = Logical True
+ Particle Wall = Logical True
+End
+
+Boundary Condition 2 
+  Name = "inland_surface"
+  Target Boundaries(1)  = 2
+
+  Normal-Tangential Velocity = Logical True
+
+  Velocity 1 = Real 0.0
+ 
+  Particle Wall = Logical True
+End
+
+Boundary Condition 3 
+ Name = "lower_surface"
+  Body Id = 2
+
+  Height = Real 0.0
+
+  Mass Consistent Normals = Logical True
+  Normal-Tangential Velocity = Logical True
+  Flow Force BC = Logical True
+  
+  !Compute normal
+  ComputeNormal = Logical True
+  ComputeNormal Condition = Variable GroundedMask
+    Real MATC "tx + 0.5"
+  
+  !Grounded (surface goes to bed) 
+  FS Lower = Equals bed
+  FS Lower Condition = Variable GroundedMask
+    Real MATC "tx + 0.5"
+  !when grounded, normal velocity = 0
+  Velocity 1 = Real 0.0
+  Velocity 1 Condition = Variable GroundedMask
+    Real MATC "tx + 0.5"
+
+  !Friction condition (apply sea spring for floating) 
+  Slip Coefficient 2 = Variable Coordinate 1
+    Real Procedure "ElmerIceUSF" "SlidCoef_Contact"
+  Slip Coefficient 3 = Variable Coordinate 1
+    Real Procedure "ElmerIceUSF" "SlidCoef_Contact"
+  !Weertman Case
+  Sliding Law = String "Weertman"
+  Weertman Friction Coefficient = Equals c1
+  Weertman Exponent = Real 1.0
+  Weertman Linear Velocity = Real 0.0001
+
+  !Pressure Condition
+  External Pressure = Variable Coordinate 3
+     Real Procedure "ElmerIceUSF" "SeaPressure" 
+  Compute Sea Pressure = Logical True
+  
+ !Spring Condition
+  Slip Coefficient 1 = Variable Coordinate 3
+    Real Procedure "ElmerIceUSF" "SeaSpring"
+  Compute Sea Spring = Logical True
+  
+  ! Options are 'Last Grounded', 'First Floating' or 'Discontinuous' 
+  Grounding Line Definition = String "Discontinuous"
+  
+  !Test on the contact during Stokes iterations
+  Test Contact Tolerance = real 1.0e-12
+  
+  !Keep inland nodes to remain grounded (due to virtual sea level)  
+  Non Detachment Inland Distance = Real 150000
+  Particle Tangent = Logical True
+End
+
+Boundary Condition 4
+  Name = "upper_surface"
+  Body Id = 3
+  Depth = Real 0.0
+  Normal-Tangential Velocity = Logical True
+  
+  Particle Tangent = Logical True
+End
+

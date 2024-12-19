@@ -1,0 +1,218 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!                                       !!
+!! Test ISMIP HOM A010                   !!
+!!                                       !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!---LUA BEGIN
+! assert(loadfile('./FUNCTIONS/Geometry2.lua'))()
+!---LUA END
+
+check keywords warn
+echo off
+
+$Lx = 1e5
+$Ly = 5e4
+$yearinsec = 365.25*24*60*60
+$rhoi = 900.0/(1.0e6*yearinsec^2)   
+$gravity = -9.81*yearinsec^2
+$n = 3.0
+$eta = (2.0*100.0)^(-1.0/n)
+$z_sea = 50.0
+Header
+  Mesh DB "." "rectangle_$resolution$"
+
+$timestep_size = 1
+$timestep_intervals = 100
+$output_interval = 1
+End
+
+Constants
+End
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Simulation
+  Coordinate System  = Cartesian 3D 
+  Simulation Type = Transient
+  Timestepping Method = "bdf"
+  BDF Order = 1
+
+  !Mesh Levels 
+  !------------
+  !Mesh Levels = $mesh_levels 
+  Extruded Mesh Levels = Integer 3
+
+  Timestep Intervals = $timestep_intervals
+  TimeStep Sizes =  $timestep_size
+  Output Intervals = $output_interval
+
+  Initialize Dirichlet Conditions = Logical False
+  
+  Steady State Max Iterations = 1
+  Steady State Min Iterations = 1
+
+  !Restart Position = 101
+  !Restart File = "$restart$_$resolution$.result"
+  OutPut File = "$name$_$resolution$.result"
+
+  max output level = 3
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! the ice core (3d)
+Body 1
+  Equation = 1
+  Body Force = 1
+  Material = 1
+  Initial Condition = 1
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Initial Condition 1
+
+  DensRel = Variable Coordinate 1 , Coordinate 2
+    Real lua "tracer_line(tx[0], tx[1])"   
+
+  Zs = Real 100.0
+  Zb = Real 0.0 
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Body Force 1
+  !tracer lower limit = Real 0.0
+  !tracer upper limit = Real 1.0
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! ice material properties in MPa - m - a system 
+Material 1
+! For the Density Solver (because based on Heat Solver)
+  Dens Cp = Real 1.0
+  Dens Conductivity = Real 0.0
+  Dens Rho = Real 1.0
+
+  Convection Velocity Dens 1 = Real 1000.0
+  Convection Velocity Dens 2 = Real 0.0
+  Convection Velocity Dens 3 = Real 0.0
+End
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Solver 1
+  Exec Solver = before all  
+  Equation = "UpdateExport"
+  Procedure = "ElmerIceSolvers" "UpdateExport"
+  Variable = -nooutput "dumy"
+
+  Exported variable 1 = -dofs 1 Zb
+  Exported variable 2 = -dofs 1 Zs
+  Exported variable 3 = -dofs 1 DensRel
+End
+
+Solver 2
+  Exec Solver = Before Timestep
+  Equation = "MapCoordinate"
+  Procedure = "StructuredMeshMapper" "StructuredMeshMapper"
+  Active Coordinate = Integer 3
+
+  Top Surface Variable Name = String "Zs"
+  Bottom Surface Variable Name = String "Zb"
+
+  Correct Surface = Logical True 
+  Minimum Height = Real 1.0
+  Mesh Velocity Variable = String "dSdt 3"
+
+End
+
+Solver 3
+  Exec Solver = "Before Timestep"
+  Equation = "HeightDepth"
+  Procedure = "StructuredProjectToPlane" "StructuredProjectToPlane"
+  Active Coordinate = Integer 3
+  Operator 1 = depth
+  Operator 2 = height
+End
+
+Solver 4
+  Equation = "Normal vector"
+  Procedure = "ElmerIceSolvers" "ComputeNormalSolver"
+  Variable = -dofs 2 "Normal Vector"
+  Optimize Bandwidth = Logical False
+  ComputeAll = Logical False
+End
+
+Solver 5
+  Equation = String "Density Equation"
+  Procedure = File "./BLD/DensSolver" "DensitySolver"
+  Variable = String "DensRel"
+
+! Linear System Solver = Direct
+! Linear System Direct Method = MUMPS
+! Mumps percentage increase working space = Integer 400
+  
+  Linear System Solver = Iterative
+  Linear System Max Iterations = 1500
+  Linear System Iterative Method = BiCGStab
+  Linear System Preconditioning = ILU0
+  Linear System Convergence Tolerance = Real 1.0e-9
+  Linear System Abort Not Converged = False
+  Linear System Residual Output = 1
+
+  Steady State Convergence Tolerance = 1.0E-04
+  Nonlinear System Convergence Tolerance = 1.0E-04 !E-05
+  Nonlinear System Min Iterations = 2
+  Nonlinear System Max Iterations = 50
+  Nonlinear System Relaxation Factor = 1.0 !9.999E-01 ! play with this if convergence is bad
+
+! uses the contact algorithm (aka Dirichlet algorithm)
+  Apply Limiter = Logical True
+  Apply Dirichlet = Logical True
+  Stabilize = Logical True
+End
+
+Solver 6
+  Exec Solver = String "after saving"
+  Equation = String "ResultOutput"
+  Procedure = File "ResultOutputSolve" "ResultOutputSolver"
+  Save Geometry Ids = Logical True
+  Output File Name = File $name
+  Output Format = String "vtu"
+  Output Directory = File "VTUs_Outputs"
+  Vtu Format = Logical True
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Equation 1
+  Active Solvers (6)= 1 2 3 4 5 6
+  Flow Solution Name = String "Porous"
+  Convection = String "Constant" 
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Boundary Condition 1
+  Target Boundaries = 1
+End
+
+! Periodic outlet
+Boundary Condition 2
+  Target Boundaries = 2
+
+End
+
+Boundary Condition 3
+  Target Boundaries = 3
+End
+
+! Periodic inlet
+Boundary Condition 4
+  Target Boundaries = 4
+  DensRel = Real 0.0 
+End
+
+!!! bedrock
+Boundary Condition 5
+  Height = Real 0.0
+End
+
+!!! free surface
+Boundary Condition 6
+  Name = "surface"
+  Depth = Real 0.0
+End 

@@ -1,0 +1,182 @@
+
+!---LUA BEGIN
+! assert(loadfile('FUNC_DAMAGE.lua'))()
+!---LUA END
+
+$n=1
+
+Header
+  Mesh DB "." "grid"
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Simulation
+  Coordinate System  = Cartesian 2D 
+  Simulation Type = Transient     
+
+  !Mesh levels = 2
+
+  Timestepping Method = "bdf"
+  BDF Order = 1
+  Output Intervals = $n
+  Timestep Intervals = $n*t
+  Timestep Sizes = $2.0*pi/(n*t)
+
+  Steady State Min Iterations = 1
+  Steady State Max Iterations = 1
+
+  Post File = "$name$.vtu"
+
+  max output level = 20
+
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Body 1
+  Equation = 1
+  Initial Condition = 1
+  Material = 1
+  Body Force = 1
+End
+
+Body Force 1
+  HDG Source = Real 0.0
+
+  Particle Time Integral Source = Variable Damage
+    Real lua "Damage(tx[0])"
+
+  Hpart = Equals Hadv
+End
+
+Material 1
+  Convection Velocity 1 = Equals Velocity 1
+  Convection Velocity 2 = Equals Velocity 2
+
+    hdg Gamma = Real 0.0
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Initial Condition 1
+  H = Variable Coordinate 1, coordinate 2
+    REAL Procedure "USFs" "HIni"
+
+  HDG = Variable Coordinate 1, coordinate 2
+      REAL Procedure "USFs" "HIni"
+  
+  Hini = Variable Coordinate 1, coordinate 2
+      REAL Procedure "USFs" "HIni"
+
+  Hpart = Variable Coordinate 1, coordinate 2
+      REAL Procedure "USFs" "HIni"
+
+  Velocity 1 = Variable coordinate 2
+     REAL MATC "tx-0.5"
+  Velocity 2 = Variable coordinate 1
+     REAL MATC "0.5-tx"
+
+  Damage = Variable Hini
+      REAL MATC "0.1*tx"
+
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Solver 1
+   Equation = "H"
+   Variable = "HDG"
+
+   Procedure = "AdvectionReaction" "AdvectionReactionSolver"
+
+   Discontinuous Galerkin = Logical True
+
+  ! Linear System Solver = Direct
+  ! Linear System Direct Method = umfpack
+
+  Linear System Solver = "Iterative"
+  Linear System Iterative Method =  "GMRES"     !"BICGStab"
+  Linear System Max Iterations = 1000
+  Linear System Convergence Tolerance = 1.0E-12
+  Linear System Abort Not Converged = False
+  Linear System Preconditioning = "ILU0"
+  Linear System Residual Output = 10000
+
+! equation is linear if no min/max
+   Nonlinear System Max Iterations = 1
+   Nonlinear System Convergence Tolerance  = 1.0e-09
+   Nonlinear System Relaxation Factor = 1.00
+
+  Exported Variable 1 = H
+End
+
+Solver 2
+  Equation = ParticleAdvector
+  Procedure = "ParticleAdvector" "ParticleAdvector"
+
+  !Relative Mesh Level = Integer -1 
+
+! Initialize particles at center of elements (as opposed to nodes)
+  Advect Elemental = Logical False
+
+  Reinitialize Particles = Logical True
+!  Particle Accurate At Face = Logical False
+
+! Timestepping strategy
+  Simulation Timestep Sizes = Logical True
+  !Timestep Size = Real $2.0*pi/(n*t)*3.0 
+
+  Particle Dt Constant = Logical False
+  Max Timestep Intervals = Integer 10! 1000
+
+! Time in average 4 steps in each element
+  Timestep Unisotropic Courant Number = Real 0.25
+  Max Timestep Size = Real 1.0e3
+
+! Give up integration if particles are tool old
+  Max Integration Time = Real 1.0e4
+
+! Integration forward in time
+  Runge Kutta = Logical False
+  Velocity Gradient Correction = Logical True
+  Velocity Variable Name = String "Velocity"
+
+  !Source Time Correction = Logical True
+  !Particle time reverse = Logical True
+
+! Show some info in the end
+  Particle Info = Logical True
+  Particle Time = Logical True
+
+! The internal variables for this solver
+  Variable 1 = String "Hpart"
+  Variable 2 = String "Particle distance"
+  Variable 3 = String "Particle time"
+  Variable 4 = String "Particle time integral"
+  Variable 5 = String "Particle distance integral"
+  Variable 6 = String "Particle velocity abs"
+
+  Result Variable 1 = String "Hadv"
+  Result Variable 4 = String "Damage"
+End
+
+
+Solver 3
+  Equation = "Dumy"
+    procedure = "ElmerIceSolvers" "UpdateExport"
+   variable = -nooutput  dumy2
+
+Exported Variable 1 = -dofs 2 Velocity
+Exported Variable 2 = -dofs 1 Hini
+Exported Variable 3 = -dofs 1 Hpart
+Exported Variable 4 = -dofs 1 Hadv
+Exported Variable 5 = -dofs 1 Damage
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Equation 1
+  Active Solvers(3) = 1 2 3
+  Convection = constant
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Boundary Condition 1
+  Target Boundaries(4) = 1 2 3 4
+  HDG= Real 0.0
+End

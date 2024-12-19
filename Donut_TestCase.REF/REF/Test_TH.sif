@@ -1,0 +1,163 @@
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!!                                       !!
+!! Test ISMIP HOM A010                   !!
+!!                                       !!
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+!---LUA BEGIN
+! assert(loadfile('./FUNCTIONS/Geometry2.lua'))()
+!---LUA END
+
+check keywords warn
+echo off
+
+$Lx = 1e5
+$Ly = 5e4
+$yearinsec = 365.25*24*60*60
+$rhoi = 900.0/(1.0e6*yearinsec^2)   
+$gravity = -9.81*yearinsec^2
+$n = 3.0
+$eta = (2.0*100.0)^(-1.0/n)
+$z_sea = 50.0
+Header
+  Mesh DB "." "rectangle_$resolution$"
+
+$timestep_size = 1
+$timestep_intervals = 100
+$output_interval = 1
+End
+
+Constants
+End
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Simulation
+  Coordinate System  = Cartesian 2D 
+  Simulation Type = Transient
+  Timestepping Method = "bdf"
+  BDF Order = 1
+
+  Timestep Intervals = $timestep_intervals
+  TimeStep Sizes =  $timestep_size
+  Output Intervals = $output_interval
+
+  Initialize Dirichlet Conditions = Logical False
+  
+  Steady State Max Iterations = 1
+  Steady State Min Iterations = 1
+
+  OutPut File = "$name$_$resolution$.result"
+
+  max output level = 3
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Body 1
+  Equation = 1
+  Body Force = 1
+  Material = 1
+  Initial Condition = 1
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Initial Condition 1
+
+  Tracer = Variable Coordinate 1, Coordinate 2
+    Real lua "tracer(tx[0], tx[1])"   
+
+  Zs = Real 100.0
+  Zb = Real 0.0 
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Body Force 1
+  Convection Velocity 1 = Real 1000.0
+  Convection Velocity 2 = Real 0.0
+End
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+!! ice material properties in MPa - m - a system 
+Material 1
+End
+
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Solver 1
+  Exec Solver = before all  
+  Equation = "UpdateExport"
+  Procedure = "ElmerIceSolvers" "UpdateExport"
+  Variable = -nooutput "dumy"
+
+  Exported variable 1 = -dofs 1 Zb
+  Exported variable 2 = -dofs 1 Zs
+  Exported variable 3 = -dofs 1 Tracer
+End
+
+Solver 2
+   Equation = "Thickness"
+   Procedure = "ElmerIceSolvers" "ThicknessSolver"
+
+   ! primary variable
+   Variable = -dofs 1 "Tracer"
+
+   ! numerical setting
+    Linear System Solver = Iterative
+    Linear System Iterative Method = "BiCGStab"
+    Linear System Max Iterations = 1000
+    Linear System Convergence Tolerance = 1.0E-12
+    Linear System Abort Not Converged = Logical True
+    Linear System Residual Output = 1
+    Linear System Preconditioning = "ILU0"
+
+   ! equation is linear if no min/max
+    Nonlinear System Max Iterations = 15
+    Nonlinear System Convergence Tolerance  = 1.0e-08
+    Nonlinear System Relaxation Factor = 1.00
+
+    Bulk Assembly Timing = Logical True
+    Linear System Timing = Logical True
+    Linear System Timing Cumulative = Logical True
+
+    Steady State Convergence Tolerance = 1.0e-6
+
+    Stabilization Method = Stabilized
+    Transient Stabilisation = Logical True
+    Apply Dirichlet = Logical False
+    Apply Limiter = Logical True
+    ! get the residual
+    Calculate Loads = Logical True
+    Convection Dimension = Integer 2
+End
+
+Solver 3
+  Exec Solver = String "after saving"
+  Equation = String "ResultOutput"
+  Procedure = File "ResultOutputSolve" "ResultOutputSolver"
+  Save Geometry Ids = Logical True
+  Output File Name = File $name
+  Output Format = String "vtu"
+  Output Directory = File "VTUs_Outputs"
+  Vtu Format = Logical True
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Equation 1
+  Active Solvers (3)= 1 2 3 
+  Convection = String "Constant" 
+End
+
+!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+Boundary Condition 1
+  Target Boundaries = 1
+End
+
+Boundary Condition 2
+  Target Boundaries = 2
+
+End
+
+Boundary Condition 3
+  Target Boundaries = 3
+End
+
+Boundary Condition 4
+  Target Boundaries = 4
+  Tracer = Real 0.0 
+End
