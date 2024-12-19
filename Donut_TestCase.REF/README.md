@@ -1,4 +1,4 @@
-# Particle Advector Dout Test
+# Particle Advector Donut Test
 
 This test is built to check the performance of the Particle Advector with a 3D-Stokes flow. For a better check, the performance should be tested at 1km resolution.
 
