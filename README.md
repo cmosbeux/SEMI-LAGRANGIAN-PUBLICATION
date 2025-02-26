@@ -25,4 +25,9 @@ This test uses a donut-shape that is advected in a 3D slab domain.
 
 This test is built to check the performance of the Semi-Lagrangian advection scheme with a 3D-Stokes flow. Running the simulation requires an initial state that can be downloaded at XXXX.
 
-<video controls src="Videos/AMU_d1int_dt_test_2000-2050.mp4" width="320" height="240" title="Amundsen Damage"></video>
+<figure>
+<center>
+<img src="https://github.com/cmosbeux/SEMI-LAGRANGIAN-PUBLICATION/Videos/AMU_d1int_dt_test_2000-2050.gif" width=50% height=50%>
+<figcaption>Fig. Advected Damage over the Amundsen Sea.</figcaption>
+</center>
+</figure>
