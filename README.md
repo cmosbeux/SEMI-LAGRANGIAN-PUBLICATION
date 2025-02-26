@@ -17,7 +17,7 @@ This repository contains tests to check the performance of the Particle Advector
 
 This test is built to check the performance of the Particle Advector with a circular flow in a domain with multiple discs, specifically using the Zalesak's disk problem to evaluate the accuracy and stability of the advection scheme.
 
-### 2. Donut Test Case
+### <a href="https://github.com/cmosbeux/SEMI-LAGRANGIAN-PUBLICATION/blob/main/Donut_TestCase.REF/README.md"> 2. Donut Test Case
 
 This test uses a donut-shape that is advected in a 3D slab domain.  
 
