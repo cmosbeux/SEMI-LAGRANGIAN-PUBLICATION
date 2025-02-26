@@ -7,7 +7,8 @@
 !---LUA END
 
 $name = "<AMU_FIX_D1-Reference>"
-$restart= "AMU_FIX_Wm1_INIT"
+!$restart= "AMU_FIX_Wm1_INIT"
+$restart= "AMU_FIX_Wm1_INIT3"
 
 $dt = <dt>
 $N_internal = <N_internal>
@@ -63,7 +64,7 @@ Simulation
 
   Restart File = "$restart$.result"
 
-  Restart Position = 5000 ! dummy last position
+  Restart Position = 51 ! dummy last position
 
   Restart Before Initial Conditions = Logical True
   Initialize Dirichlet Conditions = Logical False
@@ -127,7 +128,9 @@ Material 1
 
   ! Viscosity using a power law mu*Ef^2 
   Viscosity = Variable bottom EF, mu
-    Real LUA "tx[0]^2 * tx[1]"
+   Real LUA "tx[0]^2 * tx[1]"
+   !Real LUA "tx[1]"
+ 
     
   Critical Shear Rate = Real 1.0e-10
 

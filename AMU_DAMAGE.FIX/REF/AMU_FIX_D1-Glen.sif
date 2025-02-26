@@ -6,16 +6,17 @@
 ! assert(loadfile('./FUNCTIONS/LIMITER.lua'))()
 !---LUA END
 
-$name = "AMU_FIX_D1int_SIGMA6_HR0_DT1"
-$restart= "AMU_FIX_Wm1_INIT"
+$name = "<AMU_FIX_D1-Glen>"
+!$restart= "AMU_FIX_Wm1_INIT"
+$restart= "AMU_FIX_D1_INIT_SIGMA<SIGMA_TH>_HR<HEALING_RATE>"
 
-$dt = 1
-$N_internal = 10
-$dt_output = 1
+$dt = <dt>
+$N_internal = <N_internal>
+$dt_output = <dt_output>
 
 !we simulate a 50 year evolution
-$total_dt = 50
-$dt_pa = 1
+$total_dt = <total_dt>
+$dt_pa = <dt>
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 include AMU.param
@@ -37,8 +38,8 @@ Constants
   Ice density = Real #rhoi
 
   !DAMAGE
-  Dev Tensile Strength Modifier = Real 0.00
-  Healing rate = Real 0.0
+  Dev Tensile Strength Modifier = Real 0.05
+  Healing rate = Real 0.<HEALING_RATE>
 End
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -63,7 +64,7 @@ Simulation
 
   Restart File = "$restart$.result"
 
-  Restart Position = 5000 ! dummy last position
+  Restart Position = 1 ! dummy last position
 
   Restart Before Initial Conditions = Logical True
   Initialize Dirichlet Conditions = Logical False
@@ -91,6 +92,7 @@ Initial Condition 1
   Damage = Real 0.0
   Damage_adv = Real 0.0
   Var_zero = Real 0.0
+  !PSeaD = Real 0.0 
 End
 
 Initial Condition 2
@@ -102,16 +104,20 @@ Body Force 1
   Flow BodyForce 2 = Real 0.0
   Flow BodyForce 3 = Real #gravity
   
-  PSeaD = Variable Coordinate 3
-     Real Procedure "ElmerIceUSF" "SeaPressure"
+  !PSeaD = Variable Coordinate 3
+  !   Real Procedure "ElmerIceUSF" "SeaPressure"
   
   !Source added outside of the Particle Time Integral
-  Particle Time Integral Source = Variable Var_zero
-    Real Procedure "ElmerIceUSF" "SourceDamage"
+  !Particle Time Integral Source = Variable !Var_zero
+  !  Real Procedure "./USF_Damage/MY_USF_Damage_Limiter" "SourceDamage"  
+  !  Real Procedure "ElmerIceUSF" "SourceDamage"
 
-  !update value after timestep
+  !To speed up steady simulation, we computed the source in the restart file
+  Particle Time Integral Source = Equals Source 
+  
+ !update value after timestep
   !Damage = Equals Damage_adv
-  Damage = Variable Damage_adv,  damage_mask
+  Damage = Variable Damage_adv, damage_mask
      Real LUA "limiter_damage(tx[0], tx[1], 0.0, 0.7)"
 End
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -121,18 +127,35 @@ Material 1
   Density = Real #rhoi
   Cauchy = Logical True
 
-  Viscosity Model = String "power law"
-  Viscosity Exponent = Real #m
+  ! viscosity stuff
+  !----------------
+  Viscosity Model = String Glen
+  Viscosity =  Real 1.0
 
-  ! Viscosity using a power law mu*Ef^2 
-  Viscosity = Variable bottom EF, mu
-    Real LUA "tx[0]^2 * tx[1]"
+  Glen Exponent = Real 3.0
+  Glen Enhancement Factor = Real 1.0 !Variable Damage
+   !Real Procedure "./USF_Damage/MY_USF_Damage_Limiter" "EnhancementFactor"
+  Limit Temperature = Real -10.0
+
+  ! Viscosity is only Temp model dependent 
+  Relative Temperature = Variable Temperature, Pressure
+    Real lua "relativetemp(tx[0],tx[1])"
+  
+
+  Rate Factor 1 = Real #A1
+  Rate Factor 2 = Real #A2
+  Activation Energy 1 = Real #Q1
+  Activation Energy 2 = Real #Q2
+
+  Critical Shear Rate = Real 1.0e-10 
     
-  Critical Shear Rate = Real 1.0e-10
-
   ! Damage Source Parameters
+  !-------------------------
   Damage Enhancement Factor = Real 1.0
-  Damage Parameter sigmath = Real 0.6
+  Damage Parameter sigmath = Real 0.<SIGMA_TH>
+
+  Glen Allow Old Keywords = Logical True
+  Temperature Field Variable = string "Temperature"
 End
 
 Material 2
@@ -224,6 +247,7 @@ End
 
 Solver 7
   ! Integrate the water presure to get the resulting nodal force (Fx, Fy, Fz)
+  Exec Solver = Never
   Equation = Fw
   Procedure = "ElmerIceSolvers" "GetHydrostaticLoads"
   Variable = Fw[Fwater:3]
@@ -240,7 +264,7 @@ Solver 8
 End
 
 Solver 9
-  Exec Solver = Before Timestep 
+  Exec Solver = Never !Before Timestep 
   Equation = "Navier-Stokes"  
   Stabilization Method = String Stabilized
   Flow Model = Stokes
@@ -255,31 +279,35 @@ Solver 9
   Mumps percentage increase working space = Integer 150
 
   Nonlinear System Max Iterations = 25
-  Nonlinear System Convergence Tolerance  = 1.0e-4
+  Nonlinear System Convergence Tolerance  = 1.0e-5
   Nonlinear System Newton After Iterations = 500
-  Nonlinear System Newton After Tolerance = 1.0e-5
+  Nonlinear System Newton After Tolerance = 1.0e-4
   Nonlinear System Reset Newton = Logical True
   Nonlinear System Relaxation Factor = 1
 
   Steady State Convergence Tolerance = Real 1.0e-10
 
-  Exported Variable 1 = -dofs 6 Stress
-  Exported Variable 2 = -dofs 1 PSeaD
-  Exported Variable 3 = -dofs 1 Var_zero
+  Exported Variable 1 = -dofs 1 Var_zero
+  Exported Variable 2 = -dofs 1 Temperature
+  !Exported Variable 3 = Flow Solution Loads[Stress Vector:3 CEQ Residual:1]
+  
+  !Exported Variable 3 = -dofs 6 Stress
+  !Exported Variable 4 = -dofs 1 PSeaD
 End
 
 
 Solver 10
+  Exec Solver = Never
   Equation = Sij
   Procedure = "ElmerIceSolvers" "ComputeDevStress"
   Variable = -nooutput "Sij"
   Variable DOFs = 1
 
-  Exported Variable 1 = -dofs 6 Stress
+  Exported Variable 1 = -dofs 6 Stress[Sxx:1 Syy:1 Szz:1 Sxy:1 Syz:1 Sxz:1]
   Stress Variable Name = String "Stress"
 
   Exported Variable 2 = -dofs 1 "Chi"
-  Exported Variable 3 = -dofs 3 "Sigma"
+  !Exported Variable 3 = -dofs 3 "Sigma"
 
   Flow Solver Name = String "Flow Solution"
 
@@ -296,6 +324,7 @@ End
 
 
 Solver 11
+  !Exec Solver = Never
   !-----------------------------------------------------------------------
   ! Frequency_PA = dt_pa/dt_simu 
   ! Timestep size (dt_internal) and Max Timestep Intervals (N_internal)
@@ -356,6 +385,8 @@ Solver 12
 
   Exported Variable 1 = -dofs 1 Damage_adv
   Exported Variable 2 = -dofs 1 Damage
+  Exported Variable 3 = -dofs 1 source
+  Exported Variable 4 = -dofs 1 chi
 End
 
 
@@ -369,20 +400,21 @@ Solver 13
   Output Directory = File #outdir
   Vtu Format = Logical True
 
-  Scalar field 1 =  Damage
+  Scalar field 1  = Damage
   Scalar field 2  = vx           ! ...
   Scalar field 3  = vy           ! ...
-  Scalar field 4  = bottom Ef    ! ...
-  Scalar field 5  = mu           ! ...
+  Scalar field 4  = c1           ! ...
+  Scalar field 5  = chi          ! chi factor for source
   Scalar field 6  = bed          ! Bed machine bedrock
   Scalar field 7  = fs lower     ! Elmer geometry (surf)
   Scalar field 8  = fs upper     ! (base)
   Scalar field 9  = thickness    ! ...
   Scalar field 10 = depth        ! ...
   Scalar field 11 = groundedmask ! 
-  Scalar field 12 = c1           ! drag coefficient
+  Scalar field 12 = PSeaD
   Scalar field 13 = "Int Damage"
-  Scalar field 14 = chi
+  Scalar field 14 = pressure
+  Scalar field 15 = source 
   Vector field 1  = velocity     ! ...
   Vector field 2  = Stress     ! ...
 End
@@ -426,6 +458,8 @@ Boundary Condition 2
   Normal-Tangential Velocity = Logical True
 
   Velocity 1 = Real 0.0
+  Velocity 2 = Real 0.0
+  Velocity 3 = Real 0.0
  
   Particle Wall = Logical True
 End
@@ -459,11 +493,12 @@ Boundary Condition 3
     Real Procedure "ElmerIceUSF" "SlidCoef_Contact"
   Slip Coefficient 3 = Variable Coordinate 1
     Real Procedure "ElmerIceUSF" "SlidCoef_Contact"
+ 
   !Weertman Case
   Sliding Law = String "Weertman"
   Weertman Friction Coefficient = Equals c1
   Weertman Exponent = Real 1.0
-  Weertman Linear Velocity = Real 0.0001
+  Weertman Linear Velocity = Real 1.0
 
   !Pressure Condition
   External Pressure = Variable Coordinate 3
@@ -479,7 +514,7 @@ Boundary Condition 3
   Grounding Line Definition = String "Discontinuous"
   
   !Test on the contact during Stokes iterations
-  Test Contact Tolerance = real 1.0e-12
+  Test Contact Tolerance = real 1.0e-3
   
   !Keep inland nodes to remain grounded (due to virtual sea level)  
   Non Detachment Inland Distance = Real 150000

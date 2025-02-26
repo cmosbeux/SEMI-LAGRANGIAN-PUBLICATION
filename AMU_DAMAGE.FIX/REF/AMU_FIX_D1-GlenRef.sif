@@ -6,16 +6,9 @@
 ! assert(loadfile('./FUNCTIONS/LIMITER.lua'))()
 !---LUA END
 
-$name = "AMU_FIX_D1_SIGMA6_HR0_DT1"
-$restart= "AMU_FIX_Wm1_INIT"
-
-$dt = 1
-$N_internal = 10
-$dt_output = 1
-
-!we simulate a 50 year evolution
-$total_dt = 50
-$dt_pa = 1
+$name = "AMU_FIX_D1_INIT_SIGMA<SIGMA_TH>_HR<HEALING_RATE>"
+!$restart= "AMU_FIX_Wm1_INIT"
+$restart= "AMU_FIX_Wm1_INIT3"
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 include AMU.param
@@ -28,17 +21,14 @@ End
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 Constants
 
-  ! Stokes spring for floating ice 
-  Sea Spring Timestep Size = Real 0.0147
-
   !Physical
   Sea Level = Real $zsl
   water density = Real #rhoo
   Ice density = Real #rhoi
 
   !DAMAGE
-  Dev Tensile Strength Modifier = Real 0.00
-  Healing rate = Real 0.0
+  Dev Tensile Strength Modifier = Real 0.0
+  Healing rate = Real 0.<HEALING_RATE>
 End
 
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
@@ -52,23 +42,23 @@ Simulation
   Extruded Mesh Density = Variable Coordinate 1
     Real MATC "1.0+2.5*tx"
  
-  Timestep Intervals = $total_dt
-  TimeStep Size = $dt 
+  Timestep Intervals = 1
+  TimeStep Size = 1  
 
   Steady State Min Iterations = 1
   Steady State Max Iterations = 1
 
   OutPut File = "$name$.result"
-  Output Intervals = $dt_output
+  Output Intervals = 1
 
   Restart File = "$restart$.result"
 
-  Restart Position = 5000 ! dummy last position
+  Restart Position = 1 ! dummy last position
 
   Restart Before Initial Conditions = Logical True
   Initialize Dirichlet Conditions = Logical False
 
-  max output level = 3
+  max output level = 30
   !Max Output Partition = 32
 End
 
@@ -91,6 +81,7 @@ Initial Condition 1
   Damage = Real 0.0
   Damage_adv = Real 0.0
   Var_zero = Real 0.0
+  !PSeaD = Real 0.0 
 End
 
 Initial Condition 2
@@ -106,12 +97,9 @@ Body Force 1
      Real Procedure "ElmerIceUSF" "SeaPressure"
   
   !Source added outside of the Particle Time Integral
-  !Should be equivalent to Particle Time Integral ...
-  ! ...  but with only 1 internal source integration 
   Source = Variable Var_zero
-    Real Procedure "./USF_Damage/MY_USF_Damage_Limiter" "SourceDamage"
-  Damage = Variable Damage_adv, Source, damage_mask, $dt_pa
-     Real LUA "limiter_damage(tx[0] + tx[3] * tx[1], tx[2], 0.0, 0.7)"
+    Real Procedure "./USF_Damage/MY_USF_Damage_Limiter" "SourceDamage"  
+    !Real Procedure "ElmerIceUSF" "SourceDamage"
 End
 !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 Material 1
@@ -120,18 +108,35 @@ Material 1
   Density = Real #rhoi
   Cauchy = Logical True
 
-  Viscosity Model = String "power law"
-  Viscosity Exponent = Real #m
+  ! viscosity stuff
+  !----------------
+  Viscosity Model = String Glen
+  Viscosity =  Real 1.0
 
-  ! Viscosity using a power law mu*Ef^2 
-  Viscosity = Variable bottom EF, mu
-    Real LUA "tx[0]^2 * tx[1]"
+  Glen Exponent = Real 3.0
+  Glen Enhancement Factor = Real 1.0 !Variable Damage
+   !Real Procedure "./USF_Damage/MY_USF_Damage_Limiter" "EnhancementFactor"
+  Limit Temperature = Real -10.0
+
+  ! Viscosity is only Temp model dependent 
+  Relative Temperature = Variable Temperature, Pressure
+    Real lua "relativetemp(tx[0],tx[1])"
+  
+
+  Rate Factor 1 = Real #A1
+  Rate Factor 2 = Real #A2
+  Activation Energy 1 = Real #Q1
+  Activation Energy 2 = Real #Q2
+
+  Critical Shear Rate = Real 1.0e-10 
     
-  Critical Shear Rate = Real 1.0e-10
-
   ! Damage Source Parameters
+  !-------------------------
   Damage Enhancement Factor = Real 1.0
-  Damage Parameter sigmath = Real 0.6
+  Damage Parameter sigmath = Real 0.<SIGMA_TH>
+
+  Glen Allow Old Keywords = Logical True
+  Temperature Field Variable = string "Temperature"
 End
 
 Material 2
@@ -223,6 +228,7 @@ End
 
 Solver 7
   ! Integrate the water presure to get the resulting nodal force (Fx, Fy, Fz)
+  Exec Solver = Never
   Equation = Fw
   Procedure = "ElmerIceSolvers" "GetHydrostaticLoads"
   Variable = Fw[Fwater:3]
@@ -239,7 +245,7 @@ Solver 8
 End
 
 Solver 9
-  Exec Solver = Before Timestep 
+  Exec Solver = Never !Before Timestep 
   Equation = "Navier-Stokes"  
   Stabilization Method = String Stabilized
   Flow Model = Stokes
@@ -254,9 +260,9 @@ Solver 9
   Mumps percentage increase working space = Integer 150
 
   Nonlinear System Max Iterations = 25
-  Nonlinear System Convergence Tolerance  = 1.0e-4
+  Nonlinear System Convergence Tolerance  = 1.0e-5
   Nonlinear System Newton After Iterations = 500
-  Nonlinear System Newton After Tolerance = 1.0e-5
+  Nonlinear System Newton After Tolerance = 1.0e-4
   Nonlinear System Reset Newton = Logical True
   Nonlinear System Relaxation Factor = 1
 
@@ -265,8 +271,8 @@ Solver 9
   Exported Variable 1 = -dofs 6 Stress
   Exported Variable 2 = -dofs 1 PSeaD
   Exported Variable 3 = -dofs 1 Var_zero
+  Exported Variable 4 = -dofs 1 Temperature
 End
-
 
 Solver 10
   Equation = Sij
@@ -289,78 +295,16 @@ Solver 10
   Linear System Abort Not Converged = True
   Linear System Preconditioning = "ILU0"
   Linear System Residual Output = 1
-
-  Exported Variable 4 = -dofs 1 Damage
-  Exported Variable 5 = -dofs 1 Source
 End
 
-
 Solver 11
-  !-----------------------------------------------------------------------
-  ! Frequency_PA = dt_pa/dt_simu 
-  ! Timestep size (dt_internal) and Max Timestep Intervals (N_internal)
-  ! are fixed following : :
-  !     dt_pa = N_internal * dt_internal
-  !     e.g. N_internal = 10 ==> dt_internal = dt_pa/10 
-  !----------------------------------------------------------------------
-  ! Exec Interval = $dt_pa
-  ! Timestep Size = Real $dt_pa/$N_internal
- 
-  Equation = ParticleAdvector
-  Procedure = "ParticleAdvector" "ParticleAdvector"
+  Equation = "UpdateExport2"
+  Procedure = "ElmerIceSolvers" "UpdateExport"
 
-  ! Initialize particles at center of elements (as opposed to nodes)
-  Advect Elemental = Logical False
-
-  Reinitialize Particles = Logical True
-  Particle Dt Constant = Logical False
-  
-  Particle Accurate At Face = Logical True
-
-! Timestepping strategy
-  Simulation Timestep Sizes = Logical True
-
-  Max Timestep Intervals = Integer $N_internal
-
-! Give up integration if particles are tool old
-  Max Integration Time = Real 1.0e5
-
-! Integration forward in time
-  Runge Kutta = Logical False
-  Velocity Gradient Correction = Logical True
-  Velocity Variable Name = String "Flow Solution"
-
-! Keywords for sourcing the particle
-  Source Time Correction = Logical False
-  Particle time reverse = Logical False
-  
-  Source Gradient Correction  = Logical False
-  !Fix Tangent Velocity = Logical True 
- 
-! Show some info in the end
-  Particle Info = Logical True
-  Particle Time = Logical True
-
-! Variables for this solver
-  Variable 1 = String "Damage"
-
- ! Distance and velocity of the particle can be computed
-  Result Variable 1 = String "Damage_adv"
-
- Particle Integral Dummy Argument = Logical False
+  Exported Variable 1 = -dofs 1 Source
 End
 
 Solver 12
-  Equation = "updateexp"
-  procedure = "ElmerIceSolvers" "UpdateExport"
-
-  Exported Variable 1 = -dofs 1 Damage_adv
-  Exported Variable 2 = -dofs 1 Damage
-  Exported Variable 3 = -dofs 1 Source
-End
-
-
-Solver 13
   Exec Solver = String "after saving"
   Equation = String "ResultOutput"
   Procedure = File "ResultOutputSolve" "ResultOutputSolver"
@@ -370,20 +314,21 @@ Solver 13
   Output Directory = File #outdir
   Vtu Format = Logical True
 
-  Scalar field 1 =  Damage
+  Scalar field 1  = Damage
   Scalar field 2  = vx           ! ...
   Scalar field 3  = vy           ! ...
-  Scalar field 4  = bottom Ef    ! ...
-  Scalar field 5  = mu           ! ...
+  Scalar field 4  = c1           ! ...
+  Scalar field 5  = chi          ! chi factor for source
   Scalar field 6  = bed          ! Bed machine bedrock
   Scalar field 7  = fs lower     ! Elmer geometry (surf)
   Scalar field 8  = fs upper     ! (base)
   Scalar field 9  = thickness    ! ...
   Scalar field 10 = depth        ! ...
   Scalar field 11 = groundedmask ! 
-  Scalar field 12 = c1           ! drag coefficient
+  Scalar field 12 = PSeaD
   Scalar field 13 = "Int Damage"
-  Scalar field 14 = chi
+  Scalar field 14 = pressure
+  Scalar field 15 = source 
   Vector field 1  = velocity     ! ...
   Vector field 2  = Stress     ! ...
 End
@@ -391,7 +336,7 @@ End
 !%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%%
 
 Equation 1
-  Active Solvers (10) = 1 2 4 5 6 9 10 11 12 13
+  Active Solvers (9) = 1 2 4 5 6 9 10 11 12
   Flow Solution Name = String "Flow Solution"
 End
 
@@ -427,6 +372,8 @@ Boundary Condition 2
   Normal-Tangential Velocity = Logical True
 
   Velocity 1 = Real 0.0
+  Velocity 2 = Real 0.0
+  Velocity 3 = Real 0.0
  
   Particle Wall = Logical True
 End
@@ -460,11 +407,12 @@ Boundary Condition 3
     Real Procedure "ElmerIceUSF" "SlidCoef_Contact"
   Slip Coefficient 3 = Variable Coordinate 1
     Real Procedure "ElmerIceUSF" "SlidCoef_Contact"
+ 
   !Weertman Case
   Sliding Law = String "Weertman"
   Weertman Friction Coefficient = Equals c1
   Weertman Exponent = Real 1.0
-  Weertman Linear Velocity = Real 0.0001
+  Weertman Linear Velocity = Real 1.0
 
   !Pressure Condition
   External Pressure = Variable Coordinate 3
@@ -480,7 +428,7 @@ Boundary Condition 3
   Grounding Line Definition = String "Discontinuous"
   
   !Test on the contact during Stokes iterations
-  Test Contact Tolerance = real 1.0e-12
+  Test Contact Tolerance = real 1.0e-3
   
   !Keep inland nodes to remain grounded (due to virtual sea level)  
   Non Detachment Inland Distance = Real 150000

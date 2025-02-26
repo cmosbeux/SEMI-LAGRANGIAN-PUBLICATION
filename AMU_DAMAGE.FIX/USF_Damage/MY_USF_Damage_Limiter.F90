@@ -274,19 +274,20 @@ FUNCTION SourceDamage (Model, nodenumber, D) RESULT(Source)
    END IF
 
    ! Damage Criterion
-   ! D must remain 0<D<1
+   ! D must remain 0<D<1 (or even 0.7)
    D = MIN(0.7_dp, D)
    D = MAX(0.0_dp, D)
 
    Chi = 1.0_dp / (1.0_dp - D) * (SigmaI + pwater) - stress_threshold
-   Chi = MIN( 1.0_dp, Chi) 
+   !If chi is too high, we limit it (usually very steep and unrealistic regions)
+   Chi = MIN(1.0_dp - stress_threshold, Chi) 
    
    ! SigmaI can be very high close to boundaries 
-   !(very large strain rate induces by imposed null velocities on the boundaries)
-   IF ( SigmaI > 1.0_dp) THEN
-     Chi = 0.0
-   END IF
-   
+   !(very large strain rate induceds by imposed null velocities on the boundaries)
+   !IF ( SigmaI > 1.0_dp) THEN
+   !  Chi = 0.0
+   !END IF
+
    ! Save Chi in ChiVariable
    ChiValues(ChiPerm(nodenumber)) = Chi
    SigmaValues(DIM*SigmaPerm(nodenumber)+1) = Sigma(1)

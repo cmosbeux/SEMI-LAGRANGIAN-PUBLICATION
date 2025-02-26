@@ -36,7 +36,7 @@ file="AMU_FIX_D1-Glen"
 new_file="AMU_FIX_D1int_SIGMA${sigma_th}_HR${healing_rate}_DT${dt}"
 
 # Copy the reference file to the new filename
-cp "./REF/$file.sif" "./$SIMULATION_FILES/$new_file.sif"
+cp "./REF/RESTART_$file.sif" "./$SIMULATION_FILES/$new_file.sif"
 
 # Add lines to the new .sif file
 echo "./$SIMULATION_FILES/$new_file.sif" > ELMERSOLVER_STARTINFO

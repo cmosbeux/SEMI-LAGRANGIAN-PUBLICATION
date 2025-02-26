@@ -4,8 +4,8 @@
 #MSUB -e LOG/AMU_FIX_D1.e%j
 #MSUB -o LOG/AMU_FIX_D1.o%j
 #MSUB -n 32
-#MSUB -T 7200
-#MSUB -A gen6035
+#MSUB -T 86400
+#MSUB -A gen6066
 #MSUB -q rome
 #MSUB -m work,workflash,scratch
 #MSUB -E "--parsable"
@@ -37,5 +37,13 @@ module load elmer-171224 #elmer-dev
 module load XIOS
 
 # 4 variables: sigma_th, dt, N_internal, dt_output 
-. ./AMU_FIX_D1.sh 65 5 10 1 
-#. ./AMU_FIX_D1.sh 6 1 10 1 
+. ./AMU_GlenRef.sh 65
+. ./AMU_FIX_D1.sh 65 5 100 1 
+. ./AMU_FIX_D1.sh 65 1 20 1 
+. ./AMU_FIX_D1.sh 65 0.5 10 2 
+. ./AMU_FIX_D1.sh 65 0.25 10 4
+. ./AMU_FIX_D1.sh 65 0.1 10 10
+#. ./AMU_FIX_D1.sh 65 0.05 10 10
+#. ./AMU_FIX_D1.sh 65 0.025 10 40
+#. ./AMU_FIX_D1.sh 65 0.01 5 100
+#. ./RESTART_AMU_FIX_D1.sh 65 0.01 5 100
