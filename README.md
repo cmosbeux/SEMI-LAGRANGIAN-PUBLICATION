@@ -27,7 +27,7 @@ This test is built to check the performance of the Semi-Lagrangian advection sch
 
 <figure>
 <center>
-<img src="https://github.com/cmosbeux/SEMI-LAGRANGIAN-PUBLICATION/blob/main/Videos/AMU_d1int_dt_test_2000-2050.gif" width=50% height=50%>
+<img src="https://github.com/cmosbeux/SEMI-LAGRANGIAN-PUBLICATION/blob/main/Videos/AMU_d1int_dt_test_2000-2050.gif" width=100% height=100%>
 <figcaption>Fig. Advected Damage over the Amundsen Sea.</figcaption>
 </center>
 </figure>
