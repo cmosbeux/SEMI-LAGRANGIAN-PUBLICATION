@@ -23,7 +23,7 @@ This test uses a donut-shape that is advected in a 3D slab domain.
 
 ### <a href="https://github.com/cmosbeux/SEMI-LAGRANGIAN-PUBLICATION/blob/main/AMU_DAMAGE.FIX/README.md"> 3. SL Advection of damage in the Amundsen Sea Sector
 
-This test is built to check the performance of the Semi-Lagrangian advection scheme with a 3D-Stokes flow. Running the simulation requires an initial state that can be downloaded at XXXX.
+This test is built to check the performance of the Semi-Lagrangian advection scheme with a 3D-Stokes flow. Running the simulation requires an initial state (available here) and a mask for mmountain terrain where computing ice flow is not relevant (available at 10.5281/zenodo.15741686).
 
 <figure>
 <center>
